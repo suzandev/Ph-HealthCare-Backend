@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/style/useConst: <explanation> */
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import type { JwtPayload, SignOptions } from "jsonwebtoken";
 import {
   authProvider,
@@ -10,13 +11,16 @@ import config from "../../config";
 import { prisma } from "../../lib/prisma";
 import { jwtUtils } from "../../utils/jwt";
 import type {
+  IForgotPasswordPayload,
   IGoogleLoginPayload,
   ILoginUserPayload,
   IRegisterPatientPayload,
   IRequestUser,
+  IResetPasswordPayload,
 } from "./auth.interface";
 import type { TokenPayload } from "google-auth-library";
 import { googleClient } from "../../lib/googleAuth";
+import { redisClient } from "../../lib/redis";
 
 const registerPatient = async (payload: IRegisterPatientPayload) => {
   const { name, password, patient: patientData } = payload;
@@ -336,10 +340,50 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
   };
 };
 
+const forgotPassword = async (payload: IForgotPasswordPayload) => {
+  const { email } = payload;
+
+  const isUserExists = await prisma.user.findUnique({
+    where: {
+      email,
+    },
+  });
+
+  if (!isUserExists) {
+    throw new Error("User Does Not Exist!");
+  }
+
+  if (isUserExists.status === "BLOCKED") {
+    throw new Error("User is Blocked");
+  }
+
+  if (!isUserExists.emailVerified) {
+    throw new Error("User Not Verified");
+  }
+
+  if (isUserExists.googleId && isUserExists.authProvider === "GOOGLE") {
+    throw new Error("User Has Account with Google");
+  }
+
+  const otp = crypto.randomInt(100000, 1000000).toString();
+  const key = `forgot-password-otp:${isUserExists.email}`;
+
+  await redisClient.set(key, otp, {
+    expiration: {
+      type: "EX",
+      value: 5 * 60,
+    },
+  });
+};
+
+const resetPassword = async (payload: IResetPasswordPayload) => {};
+
 export const AuthService = {
   registerPatient,
   loginUser,
   getMe,
   refreshToken,
   googleLogin,
+  forgotPassword,
+  resetPassword,
 };
