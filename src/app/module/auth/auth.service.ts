@@ -1,6 +1,8 @@
 /** biome-ignore-all lint/style/useConst: <explanation> */
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import ejs from "ejs";
+import path from "path";
 import type { JwtPayload, SignOptions } from "jsonwebtoken";
 import {
   authProvider,
@@ -21,6 +23,7 @@ import type {
 import type { TokenPayload } from "google-auth-library";
 import { googleClient } from "../../lib/googleAuth";
 import { redisClient } from "../../lib/redis";
+import { transporter } from "../../lib/nodemailer";
 
 const registerPatient = async (payload: IRegisterPatientPayload) => {
   const { name, password, patient: patientData } = payload;
@@ -374,6 +377,24 @@ const forgotPassword = async (payload: IForgotPasswordPayload) => {
       value: 5 * 60,
     },
   });
+
+  const templatePath = path.join(
+    process.cwd(),
+    "src/app/templates/forgot-password.ejs",
+  );
+
+  const html = await ejs.renderFile(templatePath, {
+    name: isUserExists.name,
+    otp,
+    year: isUserExists.createdAt,
+  });
+
+  await transporter.sendMail({
+    from: config.email_sender,
+    to: isUserExists.email,
+    subject: "Forgot Password",
+    html,
+  });
 };
 
 const resetPassword = async (payload: IResetPasswordPayload) => {
@@ -428,6 +449,23 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
   });
 
   await redisClient.del([key]);
+
+  const templatePath = path.join(
+    process.cwd(),
+    "src/app/templates/reset-password.ejs",
+  );
+
+  const html = await ejs.renderFile(templatePath, {
+    name: isUserExists.name,
+    year: isUserExists.createdAt,
+  });
+
+  await transporter.sendMail({
+    from: config.email_sender,
+    to: isUserExists.email,
+    subject: "Password Changed",
+    html,
+  });
 };
 
 export const AuthService = {
